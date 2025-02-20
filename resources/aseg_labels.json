@@ -1,0 +1,125 @@
+{
+    "Cerebral-Exterior": [
+        "1",
+        "40"
+    ],
+    "Cerebral-White-Matter": [
+        "2",
+        "41"
+    ],
+    "Cerebral-Cortex": [
+        "3",
+        "42"
+    ],
+    "Lateral-Ventricle": [
+        "4",
+        "43"
+    ],
+    "Inf-Lat-Vent": [
+        "5",
+        "44"
+    ],
+    "Cerebellum-Exterior": [
+        "6",
+        "45"
+    ],
+    "Cerebellum-White-Matter": [
+        "7",
+        "46"
+    ],
+    "Cerebellum-Cortex": [
+        "8",
+        "47"
+    ],
+    "Thalamus": [
+        "9",
+        "48"
+    ],
+    "Thalamus-Proper": [
+        "10",
+        "49"
+    ],
+    "Caudate": [
+        "11",
+        "50"
+    ],
+    "Putamen": [
+        "12",
+        "51"
+    ],
+    "Pallidum": [
+        "13",
+        "52"
+    ],
+    "3rd-Ventricle": "14",
+    "4th-Ventricle": "15",
+    "Brain-Stem": "16",
+    "Hippocampus": [
+        "17",
+        "53"
+    ],
+    "Amygdala": [
+        "18",
+        "54"
+    ],
+    "Insula": [
+        "19",
+        "55"
+    ],
+    "Operculum": [
+        "20",
+        "56"
+    ],
+    "CSF": "24",
+    "Lesion": [
+        "25",
+        "57"
+    ],
+    "Accumbens-area": [
+        "26",
+        "58"
+    ],
+    "Substancia-Nigra": [
+        "27",
+        "59"
+    ],
+    "VentralDC": [
+        "28",
+        "60"
+    ],
+    "undetermined": [
+        "29",
+        "61"
+    ],
+    "choroid-plexus": [
+        "31",
+        "63"
+    ],
+    "Caudate/Putamen": [
+        "36",
+        "137"
+    ],
+    "Stellate": [
+        "37",
+        "69"
+    ],
+    "5th-Ventricle": "72",
+    "Lateral-Ventricles": [
+        "75",
+        "76"
+    ],
+    "F1": [
+        "83",
+        "84"
+    ],
+    "Optic-Chiasm": "85",
+    "Corpus_Callosum": "86",
+    "Amygdala-Anterior": [
+        "96",
+        "97"
+    ],
+    "Claustrum": [
+        "138",
+        "139"
+    ]
+}
