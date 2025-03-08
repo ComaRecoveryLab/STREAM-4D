@@ -193,12 +193,30 @@ def weighted_connectome_analysis(streamlines, active_streamlines, sift_weight_pa
     {output_dir}/connectome/parcels.csv \
     -out_assignment {output_dir}/connectome/assignments_parcels.csv -force')
 
-def interpolate_and_smooth_stc(source_estimate_path, stim_onset=None, time_range=None):
-    """Interpolate and smooth source estimate activation values across surface vertex"""
+def thresh_interpolate_smooth_stc(source_estimate_path, stim_onset=None, time_range=None):
+    """Threshold, interpolate, and smooth source estimate activation values temporally and spatially"""
     source_estimate = mne.read_source_estimate(source_estimate_path)
+        
+    stc_data = np.concatenate([source_estimate.rh_data, source_estimate.lh_data])    
     
-    estimate_dict = {'lh':(source_estimate.lh_vertno, source_estimate.lh_data),
-                     'rh':(source_estimate.rh_vertno, source_estimate.rh_data)}
+    baseline_data = stc_data[:,:(stim_onset-10)]
+    baseline_means = np.mean(baseline_data, axis=1)
+    baseline_data_adj = baseline_data - baseline_means[:, np.newaxis]
+    baseline_stds = np.std(baseline_data_adj, axis=1)
+    
+    stc_data_adj = stc_data - baseline_means[:, np.newaxis]
+    
+    p_value = 0.05/len(baseline_means)
+    z_score = norm.ppf(1 - p_value / 2) * 2
+    thresholds = z_score * baseline_stds
+    
+    stc_data_thresh = np.where(stc_data_adj > (baseline_means[:, np.newaxis] + thresholds[:, np.newaxis]), stc_data_adj, 0)
+    
+    rh_data_thresh = stc_data_thresh[:source_estimate.rh_data.shape[0],:]
+    lh_data_thresh = stc_data_thresh[source_estimate.rh_data.shape[0]:,:]
+    
+    estimate_dict = {'lh':(source_estimate.lh_vertno, lh_data_thresh),
+                     'rh':(source_estimate.rh_vertno, rh_data_thresh)}
     
     if stim_onset and time_range:
         time_index_range = stim_onset + time_range
@@ -207,17 +225,16 @@ def interpolate_and_smooth_stc(source_estimate_path, stim_onset=None, time_range
         n_frames = len(estimate_dict['lh'][1].shape[1])
         time_index_range = np.arange(n_frames)
     
+    output = []
     for hemi in ('rh','lh'):
         hemisphere_scalars = np.zeros((n_frames, surface_geometry[hemi]['n_vertices']))
         vertno, data = estimate_dict[hemi]
         interpolated_estimate = interpolate_surface_values_timeseries(surface_geometry[hemi]['vertices'], vertno, data[:, time_index_range])
-        smoothed_estimate = smooth_values_sparse_timeseries(surface_geometry[hemi]['connectivity'], interpolated_estimate)
-        np.save(f'{output_dir}/source_estimates/smoothed/smoothed_{hemi}.npy', smoothed_estimate)
-
-    smoothed = mne.read_source_estimate(f'{output_dir}/source_estimates/smoothed/smoothed_{hemi}.npy')
-    lh_scalars, rh_scalars = smoothed.lh_data, smoothed.rh_data
+        temporally_smoothed_estimate = gaussian_filter(interpolated_estimate, sigma=[0, 2])
+        np.save(f'{output_dir}/source_estimates/smoothed/smoothed_{hemi}.npy', temporally_smoothed_estimate)
+        output.append(temporally_smoothed_estimate)
     
-    return(lh_scalars, rh_scalars)
+    return(output)
 
     
 def main():
@@ -253,10 +270,10 @@ def main():
         streamline_endpoints[i] = [streamline[0], streamline[-1]]
 
     if interpolate_stc:
-        lh_scalars, rh_scalars = interpolate_and_smooth_stc(source_estimate_path)
+        rh_scalars, lh_scalars = interpolate_and_smooth_stc(source_estimate_path)
     else:
         raw_stc = mne.read_source_estimate(source_estimate_path)
-        lh_scalars, rh_scalars = raw_stc.lh_data, raw_stc.rh_data
+        rh_scalars, lh_scalars = raw_stc.rh_data, raw_stc.lh_data
 
     lh_surface_verts = pywavefront.Wavefront(f'{output_dir}/wavefront/lh.pial.obj').vertices
     rh_surface_verts = pywavefront.Wavefront(f'{output_dir}/wavefront/rh.pial.obj').vertices

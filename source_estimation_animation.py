@@ -2,11 +2,8 @@ import bpy
 import bmesh
 import numpy as np
 
-subject='sub-ou1neuroc010'
-session='Session_8_PremotorR51'
-
-scalar_values_timeseries_lh = np.load(bpy.path.abspath(f'//source_estimates/normalized/{subject}_{session}_normalized_lh.npy'))
-scalar_values_timeseries_rh = np.load(bpy.path.abspath(f'//source_estimates/normalized/{subject}_{session}_normalized_rh.npy'))
+scalar_values_timeseries_lh = np.load(bpy.path.abspath(f'//source_estimates/normalized/normalized_lh.npy'))
+scalar_values_timeseries_rh = np.load(bpy.path.abspath(f'//source_estimates/normalized/normalized_rh.npy'))
 n_frames = scalar_values_timeseries_lh.shape[-1]
 
 def update_intensity(scene):
