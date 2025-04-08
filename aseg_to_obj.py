@@ -12,17 +12,7 @@ with open('./resources/aseg_labels.json', 'r') as aseg_label_path:
 
 
 def execute_command(command, log=False, silent=True):
-    """ 
-    Executes a shell command and optionally logs the output to a file.
-
-    Args:
-        command (str): The shell command to execute.
-        log (str, optional): The file path to log the output. Defaults to False.
-        silent (bool, optional): If no log is provided, silence output print. Defaults to False.
-
-    Returns:
-        None
-    """
+    """Runs an input shell command and optionally logs the output to a file."""
     try:
         output = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True, encoding='utf-8')
 
