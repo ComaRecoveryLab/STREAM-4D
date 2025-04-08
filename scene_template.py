@@ -56,11 +56,8 @@ wavefront_dir = f'{output_dir}/wavefront'
 if not os.path.exists(wavefront_dir):
     raise FileNotFoundError(f"Directory not found: {wavefront_dir}")
 
-# grey_matter_objects = {"lh.pial", "rh.pial", "cerebellum_cortex"}
-# white_matter_objects = {"lh.white", "rh.white", "cerebellum_white_matter", "brain_stem"}
-
-grey_matter_objects = {"lh.pial", "rh.pial"}
-white_matter_objects = {"lh.white", "rh.white"}
+grey_matter_objects = {f"{subject}_pial.obj"}
+white_matter_objects = {f"{subject}_white.obj"}
 
 # Import all .obj files and organize into collections
 for obj_file in os.listdir(wavefront_dir):
