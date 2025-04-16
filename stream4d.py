@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import subprocess
+import time
 import random
 
 from matplotlib import pyplot as plt
@@ -17,42 +18,22 @@ from scipy.sparse import csr_matrix
 from scipy.spatial import cKDTree
 from scipy.stats import norm
 
-def associate_vertices_to_streamlines(vertices, streamline_endpoints, distance_threshold):
+# Utility
+def min_max_norm(a, min=None):
     """
-    Associates surface vertices with streamlines whose endpoints are within a given distance threshold.
+    Normalizes an array to [0, 1] using min-max normalization.
 
     Parameters:
-        vertices (ndarray): N x 3 array of vertex coordinates.
-        streamline_endpoints (ndarray): M x 2 x 3 array of streamline start and end points.
-        distance_threshold (float): Distance threshold for associating streamlines to vertices.
+        a (ndarray): Array to normalize.
+        min (float, optional): Minimum value to use instead of np.min(a).
 
     Returns:
-        list of lists: A list where each entry contains indices of streamlines associated with that vertex.
+        ndarray: Normalized array.
     """
-    # Extract start and end points of streamlines
-    streamline_starts = streamline_endpoints[:,0]
-    streamline_ends = streamline_endpoints[:,1]
-
-    # Keep track of streamline endpoint indices
-    all_streamline_points = np.vstack((streamline_starts, streamline_ends))
-    streamline_indices = np.arange(len(streamline_endpoints))
-    streamline_indices = np.concatenate([streamline_indices, streamline_indices])
-
-    # Construct a k-d tree for the start and end points
-    tree = cKDTree(all_streamline_points)
-
-    # Instantiate list of lists to store associations
-    vertex_to_streamlines = [[] for _ in range(len(vertices))]
-
-    # Query the k-d tree for each vertex to find close streamline start/end points
-    for i, vertex in enumerate(vertices):
-        # Find all streamline points within the distance threshold from the vertex
-        nearby_indices = tree.query_ball_point(vertex, distance_threshold)
-        # Ensure streamlines are unique
-        unique_streamline_indices = set(streamline_indices[idx] for idx in nearby_indices)
-        vertex_to_streamlines[i] = list(unique_streamline_indices)
-
-    return vertex_to_streamlines
+    if min is not None:
+        return(a - min)/(np.max(a) - min)
+    else:
+        return(a - np.min(a))/(np.max(a) - np.min(a))
 
 def get_sparse_connectivity(faces, num_vertices):
     """
@@ -84,58 +65,12 @@ def get_sparse_connectivity(faces, num_vertices):
     connectivity = csr_matrix((data, (row, col)), shape=(num_vertices, num_vertices))
     return connectivity
 
-def interpolate_surface_values_timeseries(vertices, stc_indices, stc_values_timeseries):
-    """
-    Interpolates missing scalar values at vertices over time using nearest neighbor interpolation.
-
-    Parameters:
-        vertices (ndarray): N x 3 array of surface vertex coordinates.
-        stc_indices (ndarray): Indices of vertices with known values.
-        stc_values_timeseries (ndarray): Known values of shape (len(stc_indices), timepoints).
-
-    Returns:
-        ndarray: Interpolated values for all vertices, shape (N, timepoints).
-    """
-    n_timepoints = stc_values_timeseries.shape[1]
-    full_scalar_values = np.zeros((vertices.shape[0], n_timepoints))
-    
-    # Set known scalar values for all timepoints
-    full_scalar_values[stc_indices, :] = stc_values_timeseries
-    
-    missing_indices = np.where(full_scalar_values[:, 0] == 0)[0]  # assumes missing values are 0 in all timepoints
-    
-    # Use KDTree to find the nearest known vertex for each missing vertex
-    tree = cKDTree(vertices[stc_indices])
-    _, nearest_known_indices = tree.query(vertices[missing_indices])
-    
-    # Assign the scalar values of the nearest known vertex to each missing vertex for each timepoint
-    full_scalar_values[missing_indices, :] = full_scalar_values[stc_indices][nearest_known_indices, :]
-    
-    return full_scalar_values
-
-def smooth_values_sparse_timeseries(connectivity, scalar_values_timeseries, num_passes=10):
-    """
-    Smooths scalar values on a surface over time using neighbor averaging via a sparse connectivity matrix.
-
-    Parameters:
-        connectivity (csr_matrix): Sparse vertex adjacency matrix.
-        scalar_values_timeseries (ndarray): Scalar values at each vertex and timepoint (N x T).
-        num_passes (int): Number of laplacian smoothing passes to apply.
-
-    Returns:
-        ndarray: Smoothed scalar values (N x T).
-    """
-    smoothed_values = scalar_values_timeseries.copy()
-    for _ in range(num_passes):
-        neighbor_sums = connectivity.dot(smoothed_values)
-        
-        non_zero_neighbors = connectivity.dot((smoothed_values != 0).astype(float))
-        
-        # Avoid division by zero by only averaging where there are non-zero neighbors
-        mask = non_zero_neighbors > 0
-        smoothed_values[mask] = neighbor_sums[mask] / non_zero_neighbors[mask]
-    
-    return smoothed_values
+# Geometry
+def get_streamline_endpoints(streamlines):
+    streamline_endpoints = np.zeros((len(streamlines),2,3))
+    for i, streamline in enumerate(streamlines):
+        streamline_endpoints[i] = [streamline[0], streamline[-1]]
+    return streamline_endpoints
 
 def srf_to_wavefront(freesurfer_dir, subject, wavefront_output_dir):
     """
@@ -202,28 +137,26 @@ def srf_to_wavefront(freesurfer_dir, subject, wavefront_output_dir):
 
     return(output_dict)
 
-def min_max_norm(a, min=None):
+def create_connectome_parcels(freesurfer_dir, subject, output_dir):
     """
-    Normalizes an array to [0, 1] using min-max normalization.
+    Converts a subject's FreeSurfer aparc+aseg.mgz parcellation to a .mif file using MRtrix's labelconvert.
 
     Parameters:
-        a (ndarray): Array to normalize.
-        min (float, optional): Minimum value to use instead of np.min(a).
+        freesurfer_dir (str): Path to the FreeSurfer recon-all directory.
+        subject (str): Freesurfer sbject identifier.
+        output_dir (str): Directory to save the converted .mif file.
 
     Returns:
-        ndarray: Normalized array.
+        str: Path to the generated .mif parcellation file.
     """
-    if min is not None:
-        return(a - min)/(np.max(a) - min)
-    else:
-        return(a - np.min(a))/(np.max(a) - np.min(a))
+    os.system(
+        f'labelconvert {freesurfer_dir}/{subject}/mri/aparc+aseg.mgz '
+        f'./resources/FreeSurferColorLUT.txt ./resources/fs_default.txt '
+        f'{output_dir}/{subject}.mif'
+    )
+    return f'{output_dir}/{subject}.mif'
 
-def get_streamline_endpoints(streamlines):
-    streamline_endpoints = np.zeros((len(streamlines),2,3))
-    for i, streamline in enumerate(streamlines):
-        streamline_endpoints[i] = [streamline[0], streamline[-1]]
-    return streamline_endpoints
-
+# Streamline Management
 def get_streamline_subset(tractography_file, output_dir, n=15000, force=False):
     """
     Loads a random subset of streamlines for visualization or analysis.
@@ -256,6 +189,86 @@ def get_streamline_subset(tractography_file, output_dir, n=15000, force=False):
             streamline_subset = [np.array(streamline) for streamline in streamline_subset_raw]
     
     return(streamline_subset)
+
+def associate_vertices_to_streamlines(vertices, streamline_endpoints, distance_threshold):
+    """
+    Associates surface vertices with streamlines whose endpoints are within a given distance threshold.
+
+    Parameters:
+        vertices (ndarray): N x 3 array of vertex coordinates.
+        streamline_endpoints (ndarray): M x 2 x 3 array of streamline start and end points.
+        distance_threshold (float): Distance threshold for associating streamlines to vertices.
+
+    Returns:
+        list of lists: A list where each entry contains indices of vertices associated with that streamline.
+    """
+    n_streamlines = streamline_endpoints.shape[0]
+    # Reshape endpoint coordinates to: (2 * N_streamlines, 3)
+    endpoint_coords = streamline_endpoints.reshape(-1, 3)
+    # Query all endpoint coordinates at once
+    tree = cKDTree(vertices)
+    all_neighbors = tree.query_ball_point(endpoint_coords, distance_threshold)
+    # Parse and combine results from each streamline's start and endpoint
+    vertex_to_streamlines = [
+        list(set(all_neighbors[2*i] + all_neighbors[2*i + 1]))  # Remove duplicates
+        for i in range(n_streamlines)
+    ]
+
+    return vertex_to_streamlines
+
+# Source Estimation Processing
+def interpolate_surface_values_timeseries(vertices, stc_indices, stc_values_timeseries):
+    """
+    Interpolates missing scalar values at vertices over time using nearest neighbor interpolation.
+
+    Parameters:
+        vertices (ndarray): N x 3 array of surface vertex coordinates.
+        stc_indices (ndarray): Indices of vertices with known values.
+        stc_values_timeseries (ndarray): Known values of shape (len(stc_indices), timepoints).
+
+    Returns:
+        ndarray: Interpolated values for all vertices, shape (N, timepoints).
+    """
+    n_timepoints = stc_values_timeseries.shape[1]
+    full_scalar_values = np.zeros((vertices.shape[0], n_timepoints))
+    
+    # Set known scalar values for all timepoints
+    full_scalar_values[stc_indices, :] = stc_values_timeseries
+    
+    missing_indices = np.where(full_scalar_values[:, 0] == 0)[0]  # assumes missing values are 0 in all timepoints
+    
+    # Use KDTree to find the nearest known vertex for each missing vertex
+    tree = cKDTree(vertices[stc_indices])
+    _, nearest_known_indices = tree.query(vertices[missing_indices])
+    
+    # Assign the scalar values of the nearest known vertex to each missing vertex for each timepoint
+    full_scalar_values[missing_indices, :] = full_scalar_values[stc_indices][nearest_known_indices, :]
+    
+    return full_scalar_values
+
+def smooth_values_sparse_timeseries(connectivity, scalar_values_timeseries, num_passes=10):
+    """
+    Smooths scalar values on a surface over time using neighbor averaging via a sparse connectivity matrix.
+
+    Parameters:
+        connectivity (csr_matrix): Sparse vertex adjacency matrix.
+        scalar_values_timeseries (ndarray): Scalar values at each vertex and timepoint (N x T).
+        num_passes (int): Number of laplacian smoothing passes to apply.
+
+    Returns:
+        ndarray: Smoothed scalar values (N x T).
+    """
+    smoothed_values = scalar_values_timeseries.copy()
+    for _ in range(num_passes):
+        neighbor_sums = connectivity.dot(smoothed_values)
+        
+        non_zero_neighbors = connectivity.dot((smoothed_values != 0).astype(float))
+        
+        # Avoid division by zero by only averaging where there are non-zero neighbors
+        mask = non_zero_neighbors > 0
+        smoothed_values[mask] = neighbor_sums[mask] / non_zero_neighbors[mask]
+    
+    return smoothed_values
 
 def threshold_stc(source_estimate_path, surface_geometry, output_dir, stim_onset, time_range, label=''):
     """
@@ -303,6 +316,7 @@ def threshold_stc(source_estimate_path, surface_geometry, output_dir, stim_onset
     np.save(os.path.join(output_dir, 'source_estimates', 'smoothed', f'{label}smoothed.npy'), smoothed_estimate)
     return(smoothed_estimate)
 
+# Streamline Activation
 def link_streamline_activation(scalars, vertex_associations, streamlines, output_dir, vis_thresh=True, label='', save=True):
     """
     Propagates scalar activation values from surface vertices to associated streamlines.
@@ -323,27 +337,28 @@ def link_streamline_activation(scalars, vertex_associations, streamlines, output
         thresh = np.percentile(scalars[scalars > 0], 90)
     else:
         thresh = np.min(scalars[scalars > 0])
+
     normalized_scalars = (scalars - thresh) / (soft_max - thresh)
     normalized_scalars = np.where(normalized_scalars > 0, normalized_scalars, 0)
     
-    # Loop through vertex associations and assign activation values to streamlines 
-    active_streamlines = np.zeros((len(streamlines), normalized_scalars.shape[-1]))    
-    for t in range(normalized_scalars.shape[-1]):
-        active_vertices = normalized_scalars[:,t] > 0
-        for vert_index, streamline_indices in enumerate(vertex_associations):
-            if active_vertices[vert_index]:
-                for streamline_index in streamline_indices:
-                    # Streamline activation value is the maximum between all associated vertices
-                    active_streamlines[streamline_index, t] = np.max([active_streamlines[streamline_index, t], normalized_scalars[vert_index, t]])
+    n_streamlines, n_timepoints = len(streamlines), scalars.shape[1]
+    active_streamlines = np.zeros((n_streamlines, n_timepoints))
+
+    # Iterate through each streamline and assign the maximum activation value from associated vertices
+    for str_idx, vtx_indices in enumerate(vertex_associations):
+        if not vtx_indices:
+            continue
+        streamline_activation = np.max(normalized_scalars[vtx_indices, :], axis=0)
+        active_streamlines[str_idx] = streamline_activation
 
     if save:
-        # Save normalized time series estimate for Blender vertex shading
+        # Save activation timeseries for Blender shading
         np.save(os.path.join(output_dir, 'source_estimates', 'normalized', f'{label}normalized.npy'), normalized_scalars)
-        # Save tractography activation timeseries for Blender streamline shading
         np.save(os.path.join(output_dir, 'tractography', f'{label}streamline_activation_timeseries.npy'), active_streamlines)
 
     return(active_streamlines)
 
+# Connectome Analysis
 def weighted_connectome_analysis(scalars, vertex_associations, streamlines, sift_weight_path, parcels_path, output_dir, label=''):
     """
     Creates a weighted structural connectome based on streamline activation and anatomical weights.
@@ -450,25 +465,7 @@ def weighted_connectome_analysis(scalars, vertex_associations, streamlines, sift
     fig.savefig(f'{output_dir}/connectome/{label}connectome.svg', dpi=300, transparent=False)
     plt.close(fig)
     
-def create_connectome_parcels(freesurfer_dir, subject, output_dir):
-    """
-    Converts a subject's FreeSurfer aparc+aseg.mgz parcellation to a .mif file using MRtrix's labelconvert.
-
-    Parameters:
-        freesurfer_dir (str): Path to the FreeSurfer recon-all directory.
-        subject (str): Freesurfer sbject identifier.
-        output_dir (str): Directory to save the converted .mif file.
-
-    Returns:
-        str: Path to the generated .mif parcellation file.
-    """
-    os.system(
-        f'labelconvert {freesurfer_dir}/{subject}/mri/aparc+aseg.mgz '
-        f'./resources/FreeSurferColorLUT.txt ./resources/fs_default.txt '
-        f'{output_dir}/{subject}.mif'
-    )
-    return f'{output_dir}/{subject}.mif'
-
+# Pipeline Control
 def run_stream4d(freesurfer_dir, subject, tractography_path, source_estimate_path, output_dir, connectome=True, sift_weight_path="", label=""):
     """
     Runs STREAM-4D integration pipeline: loads surface and tractography data, thresholds source estimates,
@@ -485,11 +482,12 @@ def run_stream4d(freesurfer_dir, subject, tractography_path, source_estimate_pat
     Returns:
         None
     """
+    start_time = time.time()
     print('------------------------------')
     print('          STREAM-4D           ')
     print('------------------------------')
 
-    print('setting up directories')
+    print('[]: setting up directories')
     for subdir in ['wavefront', 'tractography', 'connectome', 'source_estimates/raw', 'source_estimates/smoothed', 'source_estimates/normalized', 'render']:
         os.makedirs(os.path.join(output_dir, subdir), exist_ok=True)
 
@@ -520,7 +518,7 @@ def run_stream4d(freesurfer_dir, subject, tractography_path, source_estimate_pat
 
     print('Linking Activation Timeseries\n')
     link_streamline_activation(scalars, vertex_associations, streamlines, output_dir, label)
-    print('Associations Complete!')
+    print(f'Associations Complete! Renderable output saved to {output_dir}')
 
     if connectome:
         print('Running Connectome Analysis\n')
@@ -531,8 +529,11 @@ def run_stream4d(freesurfer_dir, subject, tractography_path, source_estimate_pat
         conn_vertex_associations = associate_vertices_to_streamlines(surface_geometry['vertices'], conn_streamline_endpoints, 3)
         print('Creating Connectome Parcellation\n')
         parcels = create_connectome_parcels(freesurfer_dir, subject, f'{output_dir}/connectome')
-        print('Creating Structural Connectome\n')
+        print('Creating Structural Connectome with figures\n')
         weighted_connectome_analysis(scalars, conn_vertex_associations, conn_streamlines, sift_weight_path, parcels, output_dir, label)
+
+    elapsed_time = time.time() - start_time
+    print(f'\nSTREAM-4D completed in {elapsed_time / 60:.2f} minutes ({elapsed_time:.2f} seconds).')
  
 def main():
     parser = argparse.ArgumentParser(description="Assign streamline activation intensity from source estimate")
