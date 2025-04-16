@@ -10,7 +10,6 @@ import nibabel as nib
 with open('./resources/aseg_labels.json', 'r') as aseg_label_path:
     aseg_labels = json.load(aseg_label_path)
 
-
 def execute_command(command, log=False, silent=True):
     """Runs an input shell command and optionally logs the output to a file."""
     try:

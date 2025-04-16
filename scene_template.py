@@ -4,6 +4,7 @@ import argparse
 import numpy as np
 import json
 import sys
+from bpy import mathutils
 
 def parse_arguments():
     # Remove Blender's own arguments by splitting at "--".
@@ -83,6 +84,36 @@ for obj_file in os.listdir(wavefront_dir):
             geo_modifier.node_group = bpy.data.node_groups["white_matter"]
 
 bpy.data.worlds["World"].node_tree.nodes["Background"].inputs[0].default_value = (0, 0, 0, 1)
+
+# Find the pial object and compute its center of mass
+pial_obj = bpy.data.objects.get(f"{subject}_pial")
+if not pial_obj:
+    raise ValueError(f"Could not find pial object named '{subject}_pial'")
+
+# Apply transformations before getting center of mass
+bpy.context.view_layer.objects.active = pial_obj
+bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+
+# Compute center of mass in world coordinates
+verts = [pial_obj.matrix_world @ v.co for v in pial_obj.data.vertices]
+com = sum(verts, bpy.mathutils.Vector()) / len(verts)
+
+# Create empty (null) object at the center of mass
+bpy.ops.object.empty_add(type='CUBE', align='WORLD', location=com, scale=(1, 1, 1))
+empty = bpy.context.active_object
+empty.name = "Pial_Center"
+
+# Add camera and set its position/rotation
+cam_loc = com + bpy.mathutils.Vector((150, 0, 0))
+bpy.ops.object.camera_add(enter_editmode=False, align='WORLD', location=cam_loc, rotation=(np.radians(90), 0, np.radians(90)))
+camera = bpy.context.active_object
+camera.name = "STREAM3D_Camera"
+
+# Parent camera to empty
+camera.select_set(True)
+empty.select_set(True)
+bpy.context.view_layer.objects.active = empty
+bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
 
 # Load the streamlines
 with open(f'{output_dir}/tractography/streamline_subset.txt', 'r') as file:
