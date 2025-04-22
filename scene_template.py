@@ -4,7 +4,9 @@ import argparse
 import numpy as np
 import json
 import sys
-from bpy import mathutils
+import bpy
+import mathutils
+import numpy as np
 
 def parse_arguments():
     # Remove Blender's own arguments by splitting at "--".
@@ -57,8 +59,8 @@ wavefront_dir = f'{output_dir}/wavefront'
 if not os.path.exists(wavefront_dir):
     raise FileNotFoundError(f"Directory not found: {wavefront_dir}")
 
-grey_matter_objects = {f"{subject}_pial.obj"}
-white_matter_objects = {f"{subject}_white.obj"}
+grey_matter_objects = {"pial.obj"}
+white_matter_objects = {"white.obj"}
 
 # Import all .obj files and organize into collections
 for obj_file in os.listdir(wavefront_dir):
@@ -86,34 +88,35 @@ for obj_file in os.listdir(wavefront_dir):
 bpy.data.worlds["World"].node_tree.nodes["Background"].inputs[0].default_value = (0, 0, 0, 1)
 
 # Find the pial object and compute its center of mass
-pial_obj = bpy.data.objects.get(f"{subject}_pial")
+pial_obj = bpy.data.objects.get("pial")
 if not pial_obj:
-    raise ValueError(f"Could not find pial object named '{subject}_pial'")
+    raise ValueError(f"Could not find pial object named 'pial'")
 
-# Apply transformations before getting center of mass
-bpy.context.view_layer.objects.active = pial_obj
-bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+# Get the world-space center of mass by averaging vertex coordinates
+vertices = [pial_obj.matrix_world @ v.co for v in pial_obj.data.vertices]
+com_array = np.mean(np.array([v.to_tuple() for v in vertices]), axis=0)
+com = mathutils.Vector(com_array)
 
-# Compute center of mass in world coordinates
-verts = [pial_obj.matrix_world @ v.co for v in pial_obj.data.vertices]
-com = sum(verts, bpy.mathutils.Vector()) / len(verts)
-
-# Create empty (null) object at the center of mass
 bpy.ops.object.empty_add(type='CUBE', align='WORLD', location=com, scale=(1, 1, 1))
 empty = bpy.context.active_object
-empty.name = "Pial_Center"
+empty.name = "rotation_control"
+
 
 # Add camera and set its position/rotation
-cam_loc = com + bpy.mathutils.Vector((150, 0, 0))
+cam_loc = com + mathutils.Vector((350, 0, 0))
 bpy.ops.object.camera_add(enter_editmode=False, align='WORLD', location=cam_loc, rotation=(np.radians(90), 0, np.radians(90)))
 camera = bpy.context.active_object
-camera.name = "STREAM3D_Camera"
 
 # Parent camera to empty
 camera.select_set(True)
 empty.select_set(True)
 bpy.context.view_layer.objects.active = empty
 bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
+
+empty.rotation_euler[2] = np.radians(0)
+empty.keyframe_insert(data_path="rotation_euler", index=2, frame=1)
+empty.rotation_euler[2] = np.radians(180)
+empty.keyframe_insert(data_path="rotation_euler", index=2, frame=240)
 
 # Load the streamlines
 with open(f'{output_dir}/tractography/streamline_subset.txt', 'r') as file:
