@@ -2,8 +2,6 @@ import bpy
 import bmesh
 import numpy as np
 
-scalar_values_timeseries = np.load(bpy.path.abspath(f'//source_estimates/normalized/normalized.npy'))
-n_frames = scalar_values_timeseries.shape[-1]
 
 def update_intensity(scene):
     current_frame = scene.frame_current
@@ -21,6 +19,10 @@ def update_intensity(scene):
             "value", (scalar_values_timeseries[:, current_frame])
         )
         mesh.update()
+
+scalar_values_timeseries = np.load(bpy.path.abspath(f'//source_estimates/normalized/normalized.npy'))
+n_frames = scalar_values_timeseries.shape[-1]
+
 # Clear existing handlers to avoid duplicates
 bpy.app.handlers.frame_change_pre.clear()
 

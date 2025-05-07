@@ -59,15 +59,15 @@ wavefront_dir = f'{output_dir}/wavefront'
 if not os.path.exists(wavefront_dir):
     raise FileNotFoundError(f"Directory not found: {wavefront_dir}")
 
-grey_matter_objects = {"pial.obj"}
-white_matter_objects = {"white.obj"}
+grey_matter_objects = {"pial"}
+white_matter_objects = {"white"}
 
 # Import all .obj files and organize into collections
 for obj_file in os.listdir(wavefront_dir):
     if obj_file.endswith('.obj'):
         obj_path = os.path.join(wavefront_dir, obj_file)
         bpy.ops.wm.obj_import(filepath=obj_path)
-        obj_name = os.path.splitext(obj_file)[0]
+        obj_name = os.path.basename(obj_file).split('.')[0]
         obj = bpy.context.selected_objects[0]
         
         # Reset X rotation to 0 degrees
@@ -78,6 +78,11 @@ for obj_file in os.listdir(wavefront_dir):
             bpy.context.scene.collection.objects.unlink(obj)
             tms_material = bpy.data.materials["tms_map"]
             obj.data.materials.append(tms_material)
+
+            mesh = obj.data
+            if "intensity" not in mesh.attributes:
+                mesh.attributes.new(name="intensity", type='FLOAT', domain='POINT')
+
         elif obj_name in white_matter_objects:
             white_matter.objects.link(obj)
             bpy.context.scene.collection.objects.unlink(obj)
@@ -106,6 +111,8 @@ empty.name = "rotation_control"
 cam_loc = com + mathutils.Vector((350, 0, 0))
 bpy.ops.object.camera_add(enter_editmode=False, align='WORLD', location=cam_loc, rotation=(np.radians(90), 0, np.radians(90)))
 camera = bpy.context.active_object
+bpy.context.scene.camera = camera
+
 
 # Parent camera to empty
 camera.select_set(True)
@@ -113,6 +120,12 @@ empty.select_set(True)
 bpy.context.view_layer.objects.active = empty
 bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
 
+# Set render resolution to 4K
+scene.render.resolution_x = 3840
+scene.render.resolution_y = 2160
+scene.render.resolution_percentage = 100
+
+# Add camera animation
 empty.rotation_euler[2] = np.radians(0)
 empty.keyframe_insert(data_path="rotation_euler", index=2, frame=1)
 empty.rotation_euler[2] = np.radians(180)
