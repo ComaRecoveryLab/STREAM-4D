@@ -16,3 +16,12 @@ python stream4d.py [-t TRACTOGRAPHY_PATH] [-e SOURCE_ESTIMATE_PATH] [-w SIFT_WEI
 
 python render.py [-s SUBJECT] [-l LABEL] [-o OUTPUT_DIR]
 ```
+
+
+## Contributors
+
+- Alexander Atalay ([asatalay@mgh.harvard.edu](mailto:asatalay@mgh.harvard.edu))
+
+## Acknowledgments
+
+This work was supported by the Chen Institute Mass General Research Scholar Award, Mass General Neuroscience Transformative Scholar Award, Tiny Blue Dot Foundation, NIH National Institute of Neurological Disorders and Stroke (R01NS138257), NIH Director’s Office (DP2HD101400), and MIT/MGH Brain Arousal State Control Innovation Center (BASCIC) project.
