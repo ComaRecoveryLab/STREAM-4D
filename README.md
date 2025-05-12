@@ -11,8 +11,8 @@ The current pipeline is built for use with .src source estimation files (the out
 
 The pipeline consists of two commands: First generating the associations between streamlines and surface activation, and then loading, animating, and rendering using ["Blender"](https://www.blender.org).
 
-"""
+```
 python stream4d.py [-t TRACTOGRAPHY_PATH] [-e SOURCE_ESTIMATE_PATH] [-w SIFT_WEIGHT_PATH] [-f FREESURFER_DIR] [-s SUBJECT] [-l LABEL] [-o OUTPUT_DIR] [--no-connectome]
 
 python render.py [-s SUBJECT] [-l LABEL] [-o OUTPUT_DIR]
-"""
+```
