@@ -59,6 +59,8 @@ wavefront_dir = f'{output_dir}/wavefront'
 if not os.path.exists(wavefront_dir):
     raise FileNotFoundError(f"Directory not found: {wavefront_dir}")
 
+# Add dictionaries to store object files and assign shading. To include additional anatomy (such as cerebellum or brain stem) add .obj files
+# To the wavefront directory and add them to the following dictionaries:
 grey_matter_objects = {"pial"}
 white_matter_objects = {"white"}
 
