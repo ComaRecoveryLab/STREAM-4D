@@ -15,7 +15,7 @@ import nibabel as nib
 import numpy as np
 from scipy.ndimage import gaussian_filter
 from scipy.sparse import csr_matrix
-from scipy.spatial import cKDTree
+from scipy.spatial import KDTree
 from scipy.stats import norm
 
 # Utility
@@ -151,8 +151,8 @@ def create_connectome_parcels(freesurfer_dir, subject, output_dir):
     """
     os.system(
         f'labelconvert {freesurfer_dir}/{subject}/mri/aparc+aseg.mgz '
-        f'./resources/FreeSurferColorLUT.txt ./resources/fs_default.txt '
-        f'{output_dir}/{subject}.mif'
+        f'{os.path.dirname(os.path.realpath(__file__))}/resources/FreeSurferColorLUT.txt {os.path.dirname(os.path.realpath(__file__))}/resources/fs_default.txt '
+        f'{output_dir}/{subject}.mif -force'
     )
     return f'{output_dir}/{subject}.mif'
 
@@ -206,7 +206,7 @@ def associate_vertices_to_streamlines(vertices, streamline_endpoints, distance_t
     # Reshape endpoint coordinates to: (2 * N_streamlines, 3)
     endpoint_coords = streamline_endpoints.reshape(-1, 3)
     # Query all endpoint coordinates at once
-    tree = cKDTree(vertices)
+    tree = KDTree(vertices)
     all_neighbors = tree.query_ball_point(endpoint_coords, distance_threshold)
     # Parse and combine results from each streamline's start and endpoint
     vertex_to_streamlines = [
@@ -238,7 +238,7 @@ def interpolate_surface_values_timeseries(vertices, stc_indices, stc_values_time
     missing_indices = np.where(full_scalar_values[:, 0] == 0)[0]  # assumes missing values are 0 in all timepoints
     
     # Use KDTree to find the nearest known vertex for each missing vertex
-    tree = cKDTree(vertices[stc_indices])
+    tree = KDTree(vertices[stc_indices])
     _, nearest_known_indices = tree.query(vertices[missing_indices])
     
     # Assign the scalar values of the nearest known vertex to each missing vertex for each timepoint
@@ -348,7 +348,10 @@ def link_streamline_activation(scalars, vertex_associations, streamlines, output
     for str_idx, vtx_indices in enumerate(vertex_associations):
         if not vtx_indices:
             continue
-        streamline_activation = np.max(normalized_scalars[vtx_indices, :], axis=0)
+        else:
+            print(str_idx, np.mean(normalized_scalars[vtx_indices, 50]))
+
+        streamline_activation = np.mean(normalized_scalars[vtx_indices, :], axis=0)
         active_streamlines[str_idx] = streamline_activation
 
     if save:
@@ -429,7 +432,7 @@ def weighted_connectome_analysis(scalars, vertex_associations, streamlines, sift
     ], env=env)
 
     # Load parcellation label LUT for node names and colors
-    with open("./resources/fs_label_luts.json", "r") as f:
+    with open(f"{os.path.dirname(os.path.realpath(__file__))}/resources/fs_label_luts.json", "r") as f:
         fs_label_luts = json.load(f)
         labels = list(fs_label_luts.keys())
         node_colors = list(fs_label_luts.values())
@@ -464,9 +467,27 @@ def weighted_connectome_analysis(scalars, vertex_associations, streamlines, sift
     # Save final connectome visualization
     fig.savefig(f'{output_dir}/connectome/{label}connectome.svg', dpi=300, transparent=False)
     plt.close(fig)
+
+def average_cortical_thickness(freesurfer_dir, subject):
+    """
+    Returns the average cortical thickness of a FreeSurfer subject.
+
+    Parameters:
+        freesurfer_dir (str): Path to the FreeSurfer subjects directory.
+        subject (str): Subject ID.
+
+    Returns:
+        float: Average cortical thickness across both hemispheres.
+    """
+    surf_dir = os.path.join(freesurfer_dir, subject, 'surf')
+    lh_thickness = nib.freesurfer.io.read_morph_data(os.path.join(surf_dir, 'lh.thickness'))
+    rh_thickness = nib.freesurfer.io.read_morph_data(os.path.join(surf_dir, 'rh.thickness'))
+    # Concatenate and compute the mean thickness
+    all_thickness = np.concatenate([lh_thickness, rh_thickness])
+    return(np.mean(all_thickness))
     
 # Pipeline Control
-def run_stream4d(freesurfer_dir, subject, tractography_path, source_estimate_path, output_dir, connectome=True, sift_weight_path="", label=""):
+def run_stream4d(freesurfer_dir, subject, tractography_path, source_estimate_path, output_dir, connectome=True, sift_weight_path="", label="", dist_threshold=None):
     """
     Runs STREAM-4D integration pipeline: loads surface and tractography data, thresholds source estimates,
     links activation to streamlines, and saves outputs for visualization and connectomics.
@@ -508,16 +529,21 @@ def run_stream4d(freesurfer_dir, subject, tractography_path, source_estimate_pat
     streamlines = get_streamline_subset(tractography_path, os.path.join(output_dir, 'tractography'))
 
     print('Extracting Sample Endpoints\n')
-    streamline_endpoints = get_streamline_endpoints(streamlines)
-        
+    streamline_endpoints = get_streamline_endpoints(streamlines)     
+
     print('Thresholding Source Estimate\n')
-    scalars = threshold_stc(source_estimate_path=source_estimate_path, surface_geometry=surface_geometry, output_dir=output_dir, stim_onset=500, time_range=np.arange(-25, 75), label=label)
+    scalars = threshold_stc(source_estimate_path=source_estimate_path, surface_geometry=surface_geometry, output_dir=output_dir, stim_onset=500, time_range=np.arange(-25, 175), label=label)
 
     print('Associating Streamlines to Vertices\n')
-    vertex_associations = associate_vertices_to_streamlines(surface_geometry['vertices'], streamline_endpoints, 3)
+    if not dist_threshold:
+        dist_threshold = average_cortical_thickness(freesurfer_dir, subject)
+    print(f'Computing associations with distance threshold: {dist_threshold}mm\n')
+
+    print('Associating Streamlines to Vertices\n')
+    vertex_associations = associate_vertices_to_streamlines(surface_geometry['vertices'], streamline_endpoints, dist_threshold)
 
     print('Linking Activation Timeseries\n')
-    link_streamline_activation(scalars, vertex_associations, streamlines, output_dir, label)
+    link_streamline_activation(scalars, vertex_associations, streamlines, output_dir, label=label)
     print(f'Associations Complete! Renderable output saved to {output_dir}')
 
     if connectome:
@@ -526,7 +552,7 @@ def run_stream4d(freesurfer_dir, subject, tractography_path, source_estimate_pat
         conn_streamlines = list(nib.streamlines.load(tractography_path).streamlines)
         print('Extracting Streamline Endpoints\n')
         conn_streamline_endpoints = get_streamline_endpoints(conn_streamlines)
-        conn_vertex_associations = associate_vertices_to_streamlines(surface_geometry['vertices'], conn_streamline_endpoints, 3)
+        conn_vertex_associations = associate_vertices_to_streamlines(surface_geometry['vertices'], conn_streamline_endpoints, dist_threshold)
         print('Creating Connectome Parcellation\n')
         parcels = create_connectome_parcels(freesurfer_dir, subject, f'{output_dir}/connectome')
         print('Creating Structural Connectome with figures\n')
@@ -544,10 +570,11 @@ def main():
     parser.add_argument("-s", "--subject", type=str, help="FreeSurfer Reconall subject")
     parser.add_argument("-o", "--output_dir", type=str, help="Output directory path")
     parser.add_argument("-l", "--label", type=str, default="", help="Optional label to prefix output files")
-    parser.add_argument("--no-connectome", dest="connectome", action="store_false", help="Option to not run connectome analysis (performed by default)")     
+    parser.add_argument("-d", "--distance_threshold", type=float, default=None, help="Distance threshold for associating streamlines to vertices (in mm). If none, average cortical thickness will be used")
+    parser.add_argument("--no-connectome", dest="connectome", action="store_false", help="Option to not run connectome analysis (performed by default)")    
     args = parser.parse_args()
 
-    run_stream4d(args.freesurfer_dir, args.subject, args.tractography_path, args.source_estimate_path, args.output_dir, args.connectome, args.sift_weight_path, args.label)
+    run_stream4d(args.freesurfer_dir, args.subject, args.tractography_path, args.source_estimate_path, args.output_dir, args.connectome, args.sift_weight_path, args.label, args.distance_threshold)
 
 if __name__ == "__main__":
     main()

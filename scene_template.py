@@ -29,7 +29,7 @@ subject, output_dir = args.subject, args.output
 
 bpy.ops.wm.save_as_mainfile(filepath=f"{output_dir}/{subject}.blend")
 
-cwd = os.getcwd()
+cwd = os.path.dirname(os.path.abspath(__file__))
 blender_template_path = os.path.join(cwd,"template.blend")
 
 #WORLD SETUP

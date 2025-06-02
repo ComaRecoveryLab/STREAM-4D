@@ -22,7 +22,7 @@ Finally, the render output (.png frames) can be stitched together into a video u
 
 ## Contributors
 
-- Alexander Atalay ([asatalay@mgh.harvard.edu](mailto:asatalay@mgh.harvard.edu))
+- Alexander Atalay ([asatalay@stanford.edu](mailto:asatalay@mstanford.edu))
 
 ## Acknowledgments
 
