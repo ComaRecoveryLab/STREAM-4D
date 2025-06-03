@@ -20,7 +20,7 @@ python render.py [-s SUBJECT] [-l LABEL] [-o OUTPUT_DIR]
 Finally, the render output (.png frames) can be stitched together into a video using the animate_frames.py script.
 
 
-## Contributors
+## Repo Contributors
 
 - Alexander Atalay ([asatalay@stanford.edu](mailto:asatalay@mstanford.edu))
 
