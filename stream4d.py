@@ -348,8 +348,6 @@ def link_streamline_activation(scalars, vertex_associations, streamlines, output
     for str_idx, vtx_indices in enumerate(vertex_associations):
         if not vtx_indices:
             continue
-        else:
-            print(str_idx, np.mean(normalized_scalars[vtx_indices, 50]))
 
         streamline_activation = np.mean(normalized_scalars[vtx_indices, :], axis=0)
         active_streamlines[str_idx] = streamline_activation
