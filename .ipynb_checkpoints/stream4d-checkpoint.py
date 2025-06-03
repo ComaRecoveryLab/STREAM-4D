@@ -348,8 +348,8 @@ def link_streamline_activation(scalars, vertex_associations, streamlines, output
     for str_idx, vtx_indices in enumerate(vertex_associations):
         if not vtx_indices:
             continue
-
         streamline_activation = np.max(normalized_scalars[vtx_indices, :], axis=0)
+        # streamline_activation = np.mean(normalized_scalars[vtx_indices, :], axis=0)
         active_streamlines[str_idx] = streamline_activation
 
     if save:
@@ -527,17 +527,16 @@ def run_stream4d(freesurfer_dir, subject, tractography_path, source_estimate_pat
     streamlines = get_streamline_subset(tractography_path, os.path.join(output_dir, 'tractography'))
 
     print('Extracting Sample Endpoints\n')
-    streamline_endpoints = get_streamline_endpoints(streamlines)     
-
+    streamline_endpoints = get_streamline_endpoints(streamlines)
+        
     print('Thresholding Source Estimate\n')
-    scalars = threshold_stc(source_estimate_path=source_estimate_path, surface_geometry=surface_geometry, output_dir=output_dir, stim_onset=500, time_range=np.arange(-25, 175), label=label)
+    scalars = threshold_stc(source_estimate_path=source_estimate_path, surface_geometry=surface_geometry, output_dir=output_dir, stim_onset=500, time_range=np.arange(-50, 200), label=label)
 
     print('Associating Streamlines to Vertices\n')
     if not dist_threshold:
         dist_threshold = average_cortical_thickness(freesurfer_dir, subject)
     print(f'Computing associations with distance threshold: {dist_threshold}mm\n')
 
-    print('Associating Streamlines to Vertices\n')
     vertex_associations = associate_vertices_to_streamlines(surface_geometry['vertices'], streamline_endpoints, dist_threshold)
 
     print('Linking Activation Timeseries\n')
@@ -568,7 +567,7 @@ def main():
     parser.add_argument("-s", "--subject", type=str, help="FreeSurfer Reconall subject")
     parser.add_argument("-o", "--output_dir", type=str, help="Output directory path")
     parser.add_argument("-l", "--label", type=str, default="", help="Optional label to prefix output files")
-    parser.add_argument("-d", "--distance_threshold", type=float, default=None, help="Distance threshold for associating streamlines to vertices (in mm). If none, average cortical thickness will be used")
+    parser.add_argument("-d", "--distance_threshold", type=float, default=None, help="Distance threshold for associating streamlines to vertices (in mm)")
     parser.add_argument("--no-connectome", dest="connectome", action="store_false", help="Option to not run connectome analysis (performed by default)")    
     args = parser.parse_args()
 
