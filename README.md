@@ -1,5 +1,5 @@
 # STREAM-4D
-### Surface to Tractography Real-time EEG Activation Mapping in 4 Dimensions 
+### Surface to Tractography time-Resolved EEG Activation Mapping in 4 Dimensions 
 
 ![alt text](https://github.com/ComaRecoveryLab/STREAM-4D/blob/main/resources/STREAM-4D_premotor.gif "STREAM-4D Left Premotor Stimulation")
 
