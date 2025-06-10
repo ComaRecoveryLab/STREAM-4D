@@ -9,7 +9,7 @@ To enhance mechanistic understanding of effective connectivity in the human brai
 
 The current pipeline is built for use with .src source estimation files (the output of [MNE Python](https://mne.tools/stable/index.html) source localization), .tck tractograms (the output of [MRTrix](https://www.mrtrix.org) tckgen), and [Freesurfer](https://surfer.nmr.mgh.harvard.edu) surface outputs.
 
-The pipeline consists of two commands: First generating the associations between streamlines and surface activation, and then loading, keyframing, and rendering using [Blender](https://www.blender.org). For the render.py script to be executed successfully, Blender must be accessible from the command line in the environment.
+The pipeline consists of two commands: First generating the associations between streamlines and surface activation, and then loading, keyframing, and rendering using [Blender](https://www.blender.org). For the render.py script to be executed successfully, Blender must be accessible from the command line.
 
 ```
 python stream4d.py [-t TRACTOGRAPHY_PATH] [-e SOURCE_ESTIMATE_PATH] [-w SIFT_WEIGHT_PATH] [-f FREESURFER_DIR] [-s SUBJECT] [-l LABEL] [-o OUTPUT_DIR] [--no-connectome]
