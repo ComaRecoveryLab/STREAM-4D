@@ -485,7 +485,7 @@ def average_cortical_thickness(freesurfer_dir, subject):
     return(np.mean(all_thickness))
     
 # Pipeline Control
-def run_stream4d(freesurfer_dir, subject, tractography_path, source_estimate_path, output_dir, connectome=True, sift_weight_path="", label="", dist_threshold=None):
+def run_stream4d(freesurfer_dir, subject, tractography_path, source_estimate_path, output_dir, label="", connectome=True, sift_weight_path="", stim_onset=500, time_range=np.arange(-25, 175)):
     """
     Runs STREAM-4D integration pipeline: loads surface and tractography data, thresholds source estimates,
     links activation to streamlines, and saves outputs for visualization and connectomics.
@@ -530,12 +530,11 @@ def run_stream4d(freesurfer_dir, subject, tractography_path, source_estimate_pat
     streamline_endpoints = get_streamline_endpoints(streamlines)     
 
     print('Thresholding Source Estimate\n')
-    scalars = threshold_stc(source_estimate_path=source_estimate_path, surface_geometry=surface_geometry, output_dir=output_dir, stim_onset=500, time_range=np.arange(-25, 175), label=label)
+    scalars = threshold_stc(source_estimate_path=source_estimate_path, surface_geometry=surface_geometry, output_dir=output_dir, stim_onset=stim_onset, time_range=time_range, label=label)
 
     print('Associating Streamlines to Vertices\n')
-    if not dist_threshold:
-        dist_threshold = average_cortical_thickness(freesurfer_dir, subject)
-    print(f'Computing associations with distance threshold: {dist_threshold}mm\n')
+    dist_threshold = average_cortical_thickness(freesurfer_dir, subject)
+    print(f'Computing associations with distance threshold: {round(dist_threshold, 3)}mm\n')
 
     print('Associating Streamlines to Vertices\n')
     vertex_associations = associate_vertices_to_streamlines(surface_geometry['vertices'], streamline_endpoints, dist_threshold)
@@ -568,11 +567,23 @@ def main():
     parser.add_argument("-s", "--subject", type=str, help="FreeSurfer Reconall subject")
     parser.add_argument("-o", "--output_dir", type=str, help="Output directory path")
     parser.add_argument("-l", "--label", type=str, default="", help="Optional label to prefix output files")
-    parser.add_argument("-d", "--distance_threshold", type=float, default=None, help="Distance threshold for associating streamlines to vertices (in mm). If none, average cortical thickness will be used")
+    parser.add_argument("--stim_onset", type=int, default=500, help="Index of stimulus onset timepoint in source estimate (default: 500)")
+    parser.add_argument("--time_range", type=int, nargs=2, default=[25,175], help="Time indices relative to stim_onset to include in final estimate (default: -25 to 175 ms)")
     parser.add_argument("--no-connectome", dest="connectome", action="store_false", help="Option to not run connectome analysis (performed by default)")    
     args = parser.parse_args()
 
-    run_stream4d(args.freesurfer_dir, args.subject, args.tractography_path, args.source_estimate_path, args.output_dir, args.connectome, args.sift_weight_path, args.label, args.distance_threshold)
+    run_stream4d(
+        freesurfer_dir=args.freesurfer_dir, 
+        subject=args.subject, 
+        tractography_path=args.tractography_path, 
+        source_estimate_path=args.source_estimate_path, 
+        output_dir=args.output_dir, 
+        label=args.label,
+        connectome=args.connectome, 
+        sift_weight_path=args.sift_weight_path, 
+        stim_onset=args.stim_onset,
+        time_range=np.arange(args.time_range[0], args.time_range[1])
+        )
 
 if __name__ == "__main__":
     main()

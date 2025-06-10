@@ -12,7 +12,7 @@ def setup_blender(subject, output_dir):
 
 def keyframe_tractography(output_dir, label=""):
     """Keyframe the streamlines"""
-    os.sytem(f"blender --background {output_dir}/{subject}.blend --python {code_dir}/keyframe_tractography.py -- --streamline_activation {output_dir}/tractography/{label}streamline_activation_timeseries.npy")
+    os.system(f"blender --background {output_dir}/{subject}.blend --python {code_dir}/keyframe_tractography.py -- --streamline_activation {output_dir}/tractography/{label}streamline_activation_timeseries.npy")
 
 def render_output(subject, output_dir, label=""):
     blender_file = f'{output_dir}/{subject}.blend'

@@ -42,7 +42,7 @@ def main():
     
     args = parser.parse_args()
 
-    create_video_from_images(args.image_folder, args.output_video, args.fps args.label)
+    create_video_from_images(args.image_folder, args.output_video, args.fps, args.label)
 
 if __name__ == "__main__":
     main()
