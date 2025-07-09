@@ -19,15 +19,15 @@ def render_output(subject, output_dir, label=""):
 
     os.system(f'''\
     blender --background {blender_file} \
-    --engine BLENDER_EEVEE \
+    --engine BLENDER_EEVEE_NEXT \
     --render-output {output_dir}/render/{label}_frame_####.png \
-    --python {code_dir}/source_estimation_animation.py -- --source_estimation {output_dir}/source_estimation/normalized/{label}normalized.npy \
+    --python {code_dir}/source_estimation_animation.py -- --source_estimation {output_dir}/source_estimates/normalized/{label}normalized.npy \
     --render-anim
     ''')
     
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Parse arguments for Blender script.")
+    parser = argparse.ArgumentParser(description="Render STREAM-4D output using Blender")
     parser.add_argument("-s", "--subject", required=True, help="Subject Identifier")
     parser.add_argument("-l", "--label", required=False, default="", help="Session Label (optional)")
     parser.add_argument("-o", "--output_dir", required=True, help="STREAM-4D Subject Output Directory")
