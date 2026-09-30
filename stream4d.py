@@ -14,7 +14,7 @@ import mne_connectivity
 import nibabel as nib
 import numpy as np
 from scipy.ndimage import gaussian_filter
-from scipy.sparse import csr_matrix
+from scipy.sparse import csr_matrix, save_npz, load_npz
 from scipy.spatial import KDTree
 from scipy.stats import norm
 
@@ -127,8 +127,10 @@ def srf_to_wavefront(freesurfer_dir, subject, wavefront_output_dir):
             for f in all_faces:
                 obj.write(f'f {f[0]+1} {f[1]+1} {f[2]+1}\n')
 
-        # Return geometry dictionary for further use
-        if tissue == 'pial':
+        # Return geometry dictionary for further use. White-matter vertices are used
+        # for streamline-endpoint association since GMWM-boundary-seeded tractography
+        # terminates at the white-matter surface.
+        if tissue == 'white':
             output_dict = {'vertices':all_vertices,
                            'sphere_vertices':all_sphere_vertices,
                            'faces':all_faces,
@@ -190,7 +192,7 @@ def get_streamline_subset(tractography_file, output_dir, n=15000, force=False):
     
     return(streamline_subset)
 
-def associate_vertices_to_streamlines(vertices, streamline_endpoints, distance_threshold):
+def associate_vertices_to_streamlines(vertices, streamline_endpoints, distance_threshold, save_path=None):
     """
     Associates surface vertices with streamlines whose endpoints are within a given distance threshold.
 
@@ -198,23 +200,32 @@ def associate_vertices_to_streamlines(vertices, streamline_endpoints, distance_t
         vertices (ndarray): N x 3 array of vertex coordinates.
         streamline_endpoints (ndarray): M x 2 x 3 array of streamline start and end points.
         distance_threshold (float): Distance threshold for associating streamlines to vertices.
+        save_path (str, optional): If provided, saves the association matrix as a .npz file.
 
     Returns:
-        list of lists: A list where each entry contains indices of vertices associated with that streamline.
+        csr_matrix: Boolean sparse matrix of shape (n_streamlines, n_vertices).
     """
     n_streamlines = streamline_endpoints.shape[0]
-    # Reshape endpoint coordinates to: (2 * N_streamlines, 3)
+    n_vertices = vertices.shape[0]
     endpoint_coords = streamline_endpoints.reshape(-1, 3)
-    # Query all endpoint coordinates at once
     tree = KDTree(vertices)
     all_neighbors = tree.query_ball_point(endpoint_coords, distance_threshold)
-    # Parse and combine results from each streamline's start and endpoint
-    vertex_to_streamlines = [
-        list(set(all_neighbors[2*i] + all_neighbors[2*i + 1]))  # Remove duplicates
-        for i in range(n_streamlines)
-    ]
 
-    return vertex_to_streamlines
+    rows, cols = [], []
+    for i in range(n_streamlines):
+        for v in set(all_neighbors[2*i] + all_neighbors[2*i + 1]):
+            rows.append(i)
+            cols.append(v)
+
+    matrix = csr_matrix(
+        (np.ones(len(rows), dtype=bool), (rows, cols)),
+        shape=(n_streamlines, n_vertices)
+    )
+
+    if save_path:
+        save_npz(save_path, matrix)
+
+    return matrix
 
 # Source Estimation Processing
 def interpolate_surface_values_timeseries(vertices, stc_indices, stc_values_timeseries):
@@ -323,7 +334,7 @@ def link_streamline_activation(scalars, vertex_associations, streamlines, output
 
     Parameters:
         scalars (ndarray): Vertex activation values (N_vertices x timepoints).
-        vertex_associations (list of lists): Streamline indices associated with each vertex.
+        vertex_associations (list of lists or csr_matrix): Vertex indices associated with each streamline.
         streamlines (list of ndarray): List of streamlines.
         output_dir (str): Output directory to save results.
         label (str): Optional prefix label for saved output.
@@ -340,13 +351,14 @@ def link_streamline_activation(scalars, vertex_associations, streamlines, output
 
     normalized_scalars = (scalars - thresh) / (soft_max - thresh)
     normalized_scalars = np.where(normalized_scalars > 0, normalized_scalars, 0)
-    
+
     n_streamlines, n_timepoints = len(streamlines), scalars.shape[1]
     active_streamlines = np.zeros((n_streamlines, n_timepoints))
 
     # Iterate through each streamline and assign the maximum activation value from associated vertices
-    for str_idx, vtx_indices in enumerate(vertex_associations):
-        if not vtx_indices:
+    for str_idx in range(n_streamlines):
+        vtx_indices = vertex_associations.getrow(str_idx).indices
+        if len(vtx_indices) == 0:
             continue
 
         streamline_activation = np.max(normalized_scalars[vtx_indices, :], axis=0)
@@ -485,17 +497,19 @@ def average_cortical_thickness(freesurfer_dir, subject):
     return(np.mean(all_thickness))
     
 # Pipeline Control
-def run_stream4d(freesurfer_dir, subject, tractography_path, source_estimate_path, output_dir, label="", connectome=True, sift_weight_path="", stim_onset=500, time_range=np.arange(-25, 175)):
+def run_stream4d(freesurfer_dir, subject, tractography_path, output_dir, source_estimate_path="", label="", connectome=True, sift_weight_path="", stim_onset=500, time_range=np.arange(-25, 175), dist_threshold=None):
     """
-    Runs STREAM-4D integration pipeline: loads surface and tractography data, thresholds source estimates,
-    links activation to streamlines, and saves outputs for visualization and connectomics.
+    Runs STREAM-4D integration pipeline: loads surface and tractography data, builds the
+    vertex-streamline association matrix, and optionally thresholds source estimates,
+    links activation to streamlines, and runs connectome analysis.
 
     Parameters:
         freesurfer_dir (str): Path to FreeSurfer recon-all directory.
         subject (str): Subject identifier.
         tractography_path (str): Path to .tck tractography file.
-        source_estimate_path (str): Path to .stc source estimate.
         output_dir (str): Directory to store pipeline outputs.
+        source_estimate_path (str): Path to .stc source estimate. If omitted, only the
+            surface geometry and association matrix are computed.
         label (str): Optional label prefix for output files.
 
     Returns:
@@ -507,14 +521,18 @@ def run_stream4d(freesurfer_dir, subject, tractography_path, source_estimate_pat
     print('------------------------------')
 
     print('[]: setting up directories')
-    for subdir in ['wavefront', 'tractography', 'connectome', 'source_estimates/raw', 'source_estimates/smoothed', 'source_estimates/normalized', 'render']:
+    subdirs = ['wavefront', 'tractography', 'connectome']
+    if source_estimate_path:
+        subdirs += ['source_estimates/raw', 'source_estimates/smoothed', 'source_estimates/normalized', 'render']
+    for subdir in subdirs:
         os.makedirs(os.path.join(output_dir, subdir), exist_ok=True)
 
     tract_link_path = os.path.join(output_dir, "tractography", os.path.basename(tractography_path))
-    stc_link_path = os.path.join(output_dir, "source_estimates", "raw", os.path.basename(source_estimate_path))
     os.system(f'ln -s {tractography_path} {tract_link_path}')
-    os.system(f'ln -s {source_estimate_path} {stc_link_path}')
 
+    if source_estimate_path:
+        stc_link_path = os.path.join(output_dir, "source_estimates", "raw", os.path.basename(source_estimate_path))
+        os.system(f'ln -s {source_estimate_path} {stc_link_path}')
 
     if label:
         label = label + '_'
@@ -526,34 +544,44 @@ def run_stream4d(freesurfer_dir, subject, tractography_path, source_estimate_pat
     print('Sampling Tractography Data\n')
     streamlines = get_streamline_subset(tractography_path, os.path.join(output_dir, 'tractography'))
 
-    print('Extracting Sample Endpoints\n')
-    streamline_endpoints = get_streamline_endpoints(streamlines)     
+    if dist_threshold is None:
+        print('Computing Distance Threshold from cortical thickness\n')
+        dist_threshold = average_cortical_thickness(freesurfer_dir, subject)
+    print(f'Distance threshold: {round(dist_threshold, 3)}mm\n')
 
-    print('Thresholding Source Estimate\n')
-    scalars = threshold_stc(source_estimate_path=source_estimate_path, surface_geometry=surface_geometry, output_dir=output_dir, stim_onset=stim_onset, time_range=time_range, label=label)
-
-    print('Associating Streamlines to Vertices\n')
-    dist_threshold = average_cortical_thickness(freesurfer_dir, subject)
-    print(f'Computing associations with distance threshold: {round(dist_threshold, 3)}mm\n')
-
-    print('Associating Streamlines to Vertices\n')
-    vertex_associations = associate_vertices_to_streamlines(surface_geometry['vertices'], streamline_endpoints, dist_threshold)
-
-    print('Linking Activation Timeseries\n')
-    link_streamline_activation(scalars, vertex_associations, streamlines, output_dir, label=label)
-    print(f'Associations Complete! Renderable output saved to {output_dir}')
-
-    if connectome:
-        print('Running Connectome Analysis\n')
-        print('Loading Tractography Data')
-        conn_streamlines = list(nib.streamlines.load(tractography_path).streamlines)
-        print('Extracting Streamline Endpoints\n')
+    print('Building Vertex-Streamline Association Matrix\n')
+    conn_streamlines = list(nib.streamlines.load(tractography_path).streamlines)
+    assoc_path = os.path.join(output_dir, 'connectome', 'vertex_streamline_associations.npz')
+    if os.path.exists(assoc_path):
+        print('Loading existing association matrix\n')
+        conn_vertex_associations = load_npz(assoc_path)
+    else:
         conn_streamline_endpoints = get_streamline_endpoints(conn_streamlines)
-        conn_vertex_associations = associate_vertices_to_streamlines(surface_geometry['vertices'], conn_streamline_endpoints, dist_threshold)
-        print('Creating Connectome Parcellation\n')
-        parcels = create_connectome_parcels(freesurfer_dir, subject, f'{output_dir}/connectome')
-        print('Creating Structural Connectome with figures\n')
-        weighted_connectome_analysis(scalars, conn_vertex_associations, conn_streamlines, sift_weight_path, parcels, output_dir, label)
+        conn_vertex_associations = associate_vertices_to_streamlines(
+            surface_geometry['vertices'], conn_streamline_endpoints, dist_threshold, save_path=assoc_path
+        )
+    print(f'Association matrix saved to {assoc_path}\n')
+
+    if source_estimate_path:
+        print('Thresholding Source Estimate\n')
+        scalars = threshold_stc(source_estimate_path=source_estimate_path, surface_geometry=surface_geometry, output_dir=output_dir, stim_onset=stim_onset, time_range=time_range, label=label)
+
+        print('Extracting Sample Endpoints\n')
+        streamline_endpoints = get_streamline_endpoints(streamlines)
+
+        print('Associating Streamlines to Vertices\n')
+        vertex_associations = associate_vertices_to_streamlines(surface_geometry['vertices'], streamline_endpoints, dist_threshold)
+
+        print('Linking Activation Timeseries\n')
+        link_streamline_activation(scalars, vertex_associations, streamlines, output_dir, label=label)
+        print(f'Renderable output saved to {output_dir}')
+
+        if connectome:
+            print('\nRunning Connectome Analysis\n')
+            print('Creating Connectome Parcellation\n')
+            parcels = create_connectome_parcels(freesurfer_dir, subject, f'{output_dir}/connectome')
+            print('Creating Structural Connectome with figures\n')
+            weighted_connectome_analysis(scalars, conn_vertex_associations, conn_streamlines, sift_weight_path, parcels, output_dir, label)
 
     elapsed_time = time.time() - start_time
     print(f'\nSTREAM-4D completed in {elapsed_time / 60:.2f} minutes ({elapsed_time:.2f} seconds).')
@@ -561,7 +589,7 @@ def run_stream4d(freesurfer_dir, subject, tractography_path, source_estimate_pat
 def main():
     parser = argparse.ArgumentParser(description="Assign streamline activation intensity from source estimate")
     parser.add_argument("-t", "--tractography_path", type=str, help=".tck tractography file containing streamline data")
-    parser.add_argument("-e", "--source_estimate_path", type=str, help=".stc source estimation path (MNE output, compatibility to improve with future releases)")
+    parser.add_argument("-e", "--source_estimate_path", type=str, default="", help=".stc source estimation path (MNE output). If omitted, only surface geometry and the vertex-streamline association matrix are computed.")
     parser.add_argument("-w", "--sift_weight_path", type=str, default="", help=".txt tcksift output to weight structural connectome")
     parser.add_argument("-f", "--freesurfer_dir", type=str, help="Path to the directory containing FreeSurfer's 'recon-all' output.")
     parser.add_argument("-s", "--subject", type=str, help="FreeSurfer Reconall subject")
@@ -569,20 +597,22 @@ def main():
     parser.add_argument("-l", "--label", type=str, default="", help="Optional label to prefix output files")
     parser.add_argument("--stim_onset", type=int, default=500, help="Index of stimulus onset timepoint in source estimate (default: 500)")
     parser.add_argument("--time_range", type=int, nargs=2, default=[25,175], help="Time indices relative to stim_onset to include in final estimate (default: -25 to 175 ms)")
-    parser.add_argument("--no-connectome", dest="connectome", action="store_false", help="Option to not run connectome analysis (performed by default)")    
+    parser.add_argument("--no-connectome", dest="connectome", action="store_false", help="Option to not run connectome analysis (performed by default)")
+    parser.add_argument("--dist_threshold", type=float, default=None, help="Distance threshold (mm) for associating streamline endpoints to surface vertices. Defaults to the subject's average cortical thickness.")
     args = parser.parse_args()
 
     run_stream4d(
-        freesurfer_dir=args.freesurfer_dir, 
-        subject=args.subject, 
-        tractography_path=args.tractography_path, 
-        source_estimate_path=args.source_estimate_path, 
-        output_dir=args.output_dir, 
+        freesurfer_dir=args.freesurfer_dir,
+        subject=args.subject,
+        tractography_path=args.tractography_path,
+        output_dir=args.output_dir,
+        source_estimate_path=args.source_estimate_path,
         label=args.label,
-        connectome=args.connectome, 
-        sift_weight_path=args.sift_weight_path, 
+        connectome=args.connectome,
+        sift_weight_path=args.sift_weight_path,
         stim_onset=args.stim_onset,
-        time_range=np.arange(args.time_range[0], args.time_range[1])
+        time_range=np.arange(args.time_range[0], args.time_range[1]),
+        dist_threshold=args.dist_threshold
         )
 
 if __name__ == "__main__":

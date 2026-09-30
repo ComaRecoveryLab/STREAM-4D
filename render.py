@@ -8,11 +8,11 @@ code_dir = os.path.dirname(os.path.abspath(__file__))
 
 def setup_blender(subject, output_dir):
     """Set up Blender for rendering"""
-    os.system(f"blender --background --python {code_dir}/scene_template.py -- --subject {subject} --output {output_dir}")
+    os.system(f"blender --background --python {code_dir}/blender/scene_template.py -- --subject {subject} --output {output_dir}")
 
 def keyframe_tractography(output_dir, label=""):
     """Keyframe the streamlines"""
-    os.system(f"blender --background {output_dir}/{subject}.blend --python {code_dir}/keyframe_tractography.py -- --streamline_activation {output_dir}/tractography/{label}streamline_activation_timeseries.npy")
+    os.system(f"blender --background {output_dir}/{subject}.blend --python {code_dir}/blender/keyframe_tractography.py -- --streamline_activation {output_dir}/tractography/{label}streamline_activation_timeseries.npy")
 
 def render_output(subject, output_dir, label=""):
     blender_file = f'{output_dir}/{subject}.blend'
@@ -21,7 +21,7 @@ def render_output(subject, output_dir, label=""):
     blender --background {blender_file} \
     --engine BLENDER_EEVEE_NEXT \
     --render-output {output_dir}/render/{label}_frame_####.png \
-    --python {code_dir}/source_estimation_animation.py -- --source_estimation {output_dir}/source_estimates/normalized/{label}normalized.npy \
+    --python {code_dir}/blender/source_estimation_animation.py -- --source_estimation {output_dir}/source_estimates/normalized/{label}normalized.npy \
     --render-anim
     ''')
     

@@ -30,14 +30,11 @@ subject, output_dir = args.subject, args.output
 bpy.ops.wm.save_as_mainfile(filepath=f"{output_dir}/{subject}.blend")
 
 cwd = os.path.dirname(os.path.abspath(__file__))
-blender_template_path = os.path.join(cwd,"template.blend")
+sys.path.insert(0, cwd)
 
-#WORLD SETUP
-for node_group in ["white_matter", "streamline_geometry"]:
-    bpy.ops.wm.append(filename=node_group, directory=os.path.join(blender_template_path, "NodeTree"))
-
-for material in ["streamlines", "wireframe", "tms_map"]:
-    bpy.ops.wm.append(filename=material, directory=os.path.join(blender_template_path, "Material"))
+# WORLD SETUP - build all materials and node groups from Python
+from blender_nodes import setup_scene_nodes
+setup_scene_nodes()
 
 # Remove all default objects
 bpy.ops.object.select_all(action='SELECT')
